@@ -1,0 +1,58 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Build application
+      run: go build -o go-notes
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: go-notes-binary
+        path: go-notes
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: go-notes-binary
+    
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+    
+    - name: Deploy to server
+      run: |
+        echo "Copiando binário para o servidor..."
+        scp -i ~/.ssh/id_ed25519 go-notes ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:/tmp/go-notes
+        
+        echo "Executando deploy no servidor..."
+        ssh -i ~/.ssh/id_ed25519 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} "
+          sudo mv /tmp/go-notes /home/appuser/go-notes/go-notes
+          sudo chown appuser:appuser /home/appuser/go-notes/go-notes
+          sudo chmod +x /home/appuser/go-notes/go-notes
+          sudo systemctl restart go-notes.service
+          echo 'Deploy concluído!'
+        "
